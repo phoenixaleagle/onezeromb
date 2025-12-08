@@ -1,10 +1,10 @@
 import express from "express";
-import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 import multer from "multer";
-import cloudinary from "cloudinary";
-import { v2 as cloud } from "cloudinary";
+import cloudinary, { v2 as cloud } from "cloudinary";
+import { Server } from "socket.io";
 
 dotenv.config();
 
@@ -13,7 +13,28 @@ app.use(cors());
 app.use(express.json());
 
 // ---------------------
-// Cloudinary Setup
+// MONGODB CONNECT
+// ---------------------
+mongoose.connect(process.env.MONGO_URL, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => console.log("MongoDB Connected"))
+.catch(err => console.log("DB Error:", err));
+
+// ---------------------
+// USER MODEL
+// ---------------------
+const UserSchema = new mongoose.Schema({
+    username: { type: String, unique: true },
+    finalHash: String,   // hash(username + password + android ids)
+    createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model("User", UserSchema);
+
+// ---------------------
+// CLOUDINARY SETUP
 // ---------------------
 cloud.config({
   cloud_name: process.env.CLOUD_NAME,
@@ -22,12 +43,80 @@ cloud.config({
 });
 
 // ---------------------
-// Multer (Memory Upload)
+// MULTER (MEMORY)
 // ---------------------
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ---------------------
-// HTTP Server
+// SIGN UP
+// ---------------------
+app.post("/signup", async (req, res) => {
+  try {
+      const { username, final_hash } = req.body;
+
+      const exist = await User.findOne({ username });
+      if (exist) return res.json({ success: false, msg: "User exists" });
+
+      await User.create({
+          username,
+          finalHash: final_hash
+      });
+
+      return res.json({ success: true });
+
+  } catch (err) {
+      return res.json({ success: false, msg: "Signup error", err });
+  }
+});
+
+// ---------------------
+// SIGN IN
+// ---------------------
+app.post("/signin", async (req, res) => {
+  try {
+      const { username, final_hash } = req.body;
+
+      const user = await User.findOne({ username });
+      if (!user) return res.json({ success: false, msg: "No user" });
+
+      if (user.finalHash !== final_hash)
+          return res.json({ success: false, msg: "Wrong credentials" });
+
+      return res.json({
+          success: true,
+          token: username
+      });
+
+  } catch (err) {
+      return res.json({ success: false, msg: "Signin error", err });
+  }
+});
+
+// ---------------------
+// IMAGE UPLOAD
+// ---------------------
+app.post("/upload", upload.single("file"), async (req, res) => {
+  try {
+      const file = req.file;
+
+      const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+
+      const result = await cloud.uploader.upload(base64, {
+          folder: "chat_uploads"
+      });
+
+      return res.json({
+          success: true,
+          url: result.secure_url
+      });
+
+  } catch (err) {
+      return res.status(500).json({ success: false, msg: "Upload error", err });
+  }
+});
+
+// ---------------------
+// HTTP SERVER
 // ---------------------
 const server = app.listen(process.env.PORT || 3000, () => {
   console.log("Server running...");
@@ -37,22 +126,23 @@ const server = app.listen(process.env.PORT || 3000, () => {
 // SOCKET.IO
 // ---------------------
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" }
 });
 
-// LISTEN SOCKET CONNECTIONS
-io.on("connection", (socket) => {
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (!token) return next(new Error("NO_TOKEN"));
+    next();
+});
+
+io.on("connection", socket => {
   console.log("User connected:", socket.id);
 
-  // Normal text message
-  socket.on("send_message", (data) => {
+  socket.on("send_message", data => {
     io.emit("receive_message", data);
   });
 
-  // Image message (after uploaded)
-  socket.on("send_image", (data) => {
+  socket.on("send_image", data => {
     io.emit("receive_image", data);
   });
 
@@ -62,30 +152,8 @@ io.on("connection", (socket) => {
 });
 
 // ---------------------
-// IMAGE UPLOAD API
-// ---------------------
-app.post("/upload", upload.single("file"), async (req, res) => {
-  try {
-    const file = req.file;
-    const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-
-    const result = await cloud.uploader.upload(base64, {
-      folder: "chat_uploads"
-    });
-
-    return res.json({
-      success: true,
-      url: result.secure_url
-    });
-
-  } catch (err) {
-    return res.status(500).json({ error: "Upload failed", details: err });
-  }
-});
-
-// ---------------------
-// ROOT CHECK ROUTE
+// ROOT CHECK
 // ---------------------
 app.get("/", (req, res) => {
-  res.send("Chat server is running.");
+  res.send("Auth + DeviceHash + Chat + Image Server Running");
 });
