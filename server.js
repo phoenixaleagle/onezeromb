@@ -25,9 +25,9 @@ mongoose.connect(process.env.MONGO_URL, {
 // ---------------------
 // USER MODEL
 // ---------------------
-const UserSchema = new mongoose.Schema({
-    username: { type: String, unique: true },
-    finalHash: String,   // hash(username + password + android ids)
+const UserSchema = new mongoose.Schema({                                                                                                                   username: { type: String, unique: true },
+    // **hash(username + password + android ids)**
+    finalHash: String,   // **hash(username + password)**
     createdAt: { type: Date, default: Date.now }
 });
 
@@ -62,8 +62,7 @@ app.post("/signup", async (req, res) => {
           finalHash: final_hash
       });
 
-      return res.json({ success: true });
-
+      return res.json({ success: true, token: username }); // Token ကို ပြန်ပို့ရန် ပြင်ထားသည်                                                                  
   } catch (err) {
       return res.json({ success: false, msg: "Signup error", err });
   }
@@ -79,7 +78,7 @@ app.post("/signin", async (req, res) => {
       const user = await User.findOne({ username });
       if (!user) return res.json({ success: false, msg: "No user" });
 
-      if (user.finalHash !== final_hash)
+      // finalHash ကိုသာ တိုက်ဆိုင်စစ်ဆေးသည်။                                                                                                                          if (user.finalHash !== final_hash)
           return res.json({ success: false, msg: "Wrong credentials" });
 
       return res.json({
@@ -100,13 +99,11 @@ app.post("/upload", upload.single("file"), async (req, res) => {
       const file = req.file;
 
       const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
-
       const result = await cloud.uploader.upload(base64, {
           folder: "chat_uploads"
       });
 
-      return res.json({
-          success: true,
+      return res.json({                                                                                                                                          success: true,
           url: result.secure_url
       });
 
@@ -155,5 +152,6 @@ io.on("connection", socket => {
 // ROOT CHECK
 // ---------------------
 app.get("/", (req, res) => {
-  res.send("Auth + DeviceHash + Chat + Image Server Running");
+  // **res.send("Auth + DeviceHash + Chat + Image Server Running");**
+  res.send("Auth + Chat + Image Server Running");
 });
