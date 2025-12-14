@@ -150,11 +150,11 @@ io.on("connection", socket => {
   console.log("User connected:", socket.handshake.auth.token, "ID:", socket.id); // username ကို log ထုတ်ပါ
 
   socket.on("send_message", data => {
-    io.emit("receive_message", data); // Everyone gets the message
+    socket.broadcast.emit("receive_message", data); // Everyone gets the message
   });
 
   socket.on("send_image", data => {
-    io.emit("receive_image", data);
+    socket.broadcast.emit("receive_image", data);
   });
 
   socket.on("disconnect", () => {
