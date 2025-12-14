@@ -8,7 +8,7 @@ import { Server } from "socket.io";
 import { createHash } from "crypto";
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
-
+const MONGO_URL ="mongodb+srv://oneomb:ylh43181864cmk@oneomb.qsnbskg.mongodb.net/?appName=oneomb"
 dotenv.config();
 
 const app = express();
@@ -18,7 +18,7 @@ app.use(express.json());
 // ---------------------
 // MONGODB CONNECT
 // ---------------------
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(MONGO_URL)
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log("DB Error:", err));
 // ---------------------
