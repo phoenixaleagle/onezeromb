@@ -8,8 +8,8 @@ import { Server } from "socket.io";
 import { createHash } from "crypto";
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
-const MONGO_URL ="mongodb+srv://oneomb:ylh43181864cmk@oneomb.qsnbskg.mongodb.net/?appName=oneomb"
-dotenv.config();
+const MONGO_URL ="mongodb+srv://oneomb:ylh43181864cmk@oneomb.qznbskg.mongodb.net/?appName=oneomb"
+
 
 const app = express();
 app.use(cors());
