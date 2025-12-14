@@ -5,10 +5,8 @@ import mongoose from "mongoose";
 import multer from "multer";
 import cloudinary, { v2 as cloud } from "cloudinary";
 import { Server } from "socket.io";
-// SHA-256 အတွက် crypto module ကို ထပ်ထည့်ရန် လိုအပ်ပါသည်။
 import { createHash } from "crypto";
 
-// Hash function ကို server side မှာ သေချာ ထပ်ရေးပါ။
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
 dotenv.config();
