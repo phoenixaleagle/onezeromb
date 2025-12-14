@@ -35,7 +35,9 @@ const User = mongoose.model("User", UserSchema);
 
 // ---------------------
 // CLOUDINARY SETUP
+
 // ---------------------
+dotenv.config();
 cloud.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.CLOUD_KEY,
@@ -103,31 +105,32 @@ app.post("/signin", async (req, res) => {
 // ---------------------
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
-      const file = req.file;
+    if (!req.file) {
+      return res.status(400).json({ success: false, msg: "No file" });
+    }
 
-      const base64 = `data:${file.mimetype};base64,${file.buffer.toString("base64")}`;
+    const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
 
-      const result = await cloud.uploader.upload(base64, {
-          folder: "chat_uploads"
-      });
+    const result = await cloud.uploader.upload(base64, {
+      folder: "chat_uploads"
+    });
 
-      return res.json({
-          success: true,
-          url: result.secure_url
-      });
-
+    return res.json({
+      success: true,
+      url: result.secure_url
+    });
   } catch (err) {
-      return res.status(500).json({ success: false, msg: "Upload error", err });
+    return res.status(500).json({ success: false, msg: "Upload error", err: err.message });
   }
 });
 
 // ---------------------\
 // HTTP SERVER
+const server = app.listen(process.env.PORT || 3000, () => {
+  console.log("Server running");
+});
 // ---------------------\
 // Render သည် process.env.PORT ကို အလိုအလျောက် ပေးပါသည်။
-const server = app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running on port " + (process.env.PORT || 3000) + "...");
-});
 
 // ---------------------\
 // SOCKET.IO
