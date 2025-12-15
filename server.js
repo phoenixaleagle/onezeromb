@@ -6,7 +6,7 @@ import multer from "multer";
 import cloudinary, { v2 as cloud } from "cloudinary";
 import { Server } from "socket.io";
 import { createHash } from "crypto";
-
+import { createServer } from "http";
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 const MONGO_URL ="mongodb+srv://oneomb:ylh43181864cmk@oneomb.qznbskg.mongodb.net/?appName=oneomb"
 
@@ -44,6 +44,16 @@ cloud.config({
   api_secret: process.env.CLOUD_SECRET
 });
 
+async function broadcastUserCounts() {
+    try {
+        const registered = await User.countDocuments();
+        const online = io.engine.clientsCount;
+        io.emit("user_counts", { registered, online });
+        console.log(`Broadcast: Reg=${registered}, Online=${online}`);
+    } catch (err) {
+        console.error("Broadcast Error:", err);
+    }
+}
 // ---------------------
 // MULTER (MEMORY)
 // ---------------------
