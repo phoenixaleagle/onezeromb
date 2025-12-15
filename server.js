@@ -1,43 +1,31 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
+import dotenv from "dotenv"; // dotenv ကို import အရင်လုပ်ပါ
 import mongoose from "mongoose";
 import multer from "multer";
 import cloudinary, { v2 as cloud } from "cloudinary";
 import { Server } from "socket.io";
 import { createHash } from "crypto";
+import { createServer } from "http";
+
+// 1. dotenv config ကို အပေါ်ဆုံးနားမှာ ကြေညာပါ
+dotenv.config();
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
-const MONGO_URL ="mongodb+srv://oneomb:ylh43181864cmk@oneomb.qznbskg.mongodb.net/?appName=oneomb"
 
+// 2. MONGO_URL ကို process.env ကနေ ယူပါ (Hardcode မလုပ်တော့ပါ)
+const MONGO_URL = process.env.MONGO_URL;
 
 const app = express();
+const httpServer = createServer(app);
+
 app.use(cors());
 app.use(express.json());
 
 // ---------------------
-// MONGODB CONNECT
-// ---------------------
-mongoose.connect(MONGO_URL)
-  .then(() => console.log("MongoDB Connected"))
-  .catch(err => console.log("DB Error:", err));
-// ---------------------
-// USER MODEL
-// ---------------------
-const UserSchema = new mongoose.Schema({
-    username: { type: String, unique: true },
-    // hash(username + password) သည် Android ဘက်ခြမ်းနှင့် ကိုက်ညီပါသည်
-    finalHash: String,
-    createdAt: { type: Date, default: Date.now }
-});
-
-const User = mongoose.model("User", UserSchema);
-
-// ---------------------
 // CLOUDINARY SETUP
-
 // ---------------------
-dotenv.config();
+// Cloudinary config တွေကိုလည်း env ကနေပဲ ယူပါမယ်
 cloud.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.CLOUD_KEY,
@@ -45,13 +33,52 @@ cloud.config({
 });
 
 // ---------------------
-// MULTER (MEMORY)
+// MONGODB CONNECT
+// ---------------------
+mongoose.connect(MONGO_URL)
+  .then(() => console.log("MongoDB Connected"))
+  .catch(err => console.log("DB Error:", err));
+
+// ---------------------
+// USER MODEL
+// ---------------------
+const UserSchema = new mongoose.Schema({
+    username: { type: String, unique: true },
+    finalHash: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model("User", UserSchema);
+
+// ---------------------
+// SOCKET.IO SETUP
+// ---------------------
+const io = new Server(httpServer, {
+  cors: { origin: "*" }
+});
+
+// Broadcast Counts Helper
+async function broadcastUserCounts() {
+    try {
+        const registered = await User.countDocuments();
+        const online = io.engine.clientsCount; 
+        io.emit("user_counts", { registered, online });
+        console.log(`Broadcast: Reg=${registered}, Online=${online}`);
+    } catch (err) {
+        console.error("Broadcast Error:", err);
+    }
+}
+
+// ---------------------
+// MULTER
 // ---------------------
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ---------------------
-// SIGN UP
+// ROUTES
 // ---------------------
+
+// SIGN UP
 app.post("/signup", async (req, res) => {
   try {
       const { username, final_hash } = req.body;
@@ -67,6 +94,8 @@ app.post("/signup", async (req, res) => {
       const newUser = new User({ username, finalHash: final_hash });
       await newUser.save();
 
+      broadcastUserCounts(); // Update counts
+
       return res.json({ success: true, msg: "User created" });
   } catch (err) {
       console.error(err);
@@ -74,9 +103,7 @@ app.post("/signup", async (req, res) => {
   }
 });
 
-// ---------------------
 // SIGN IN
-// ---------------------
 app.post("/signin", async (req, res) => {
     try {
         const { username, final_hash } = req.body;
@@ -84,14 +111,12 @@ app.post("/signin", async (req, res) => {
             return res.status(400).json({ success: false, msg: "Missing username or hash" });
         }
 
-        // Android မှ ပို့လာသော hash ကိုပဲ တိုက်ရိုက် စစ်ဆေးသည်
         const user = await User.findOne({ username, finalHash: final_hash });
 
         if (!user) {
             return res.status(401).json({ success: false, msg: "Invalid username or password" });
         }
 
-        // Login အောင်မြင်ပါက username ကို token အဖြစ် သိမ်းဆည်းရန်အတွက် client ဘက်သို့ ပြန်ပို့နိုင်ပါသည်။
         return res.json({ success: true, msg: "Signed in", username: user.username });
 
     } catch (err) {
@@ -100,57 +125,37 @@ app.post("/signin", async (req, res) => {
     }
 });
 
-// ---------------------
-// UPLOAD (Image/File Upload)
-// ---------------------
+// UPLOAD
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, msg: "No file" });
     }
-
     const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-
-    const result = await cloud.uploader.upload(base64, {
-      folder: "chat_uploads"
-    });
-
-    return res.json({
-      success: true,
-      url: result.secure_url
-    });
+    const result = await cloud.uploader.upload(base64, { folder: "chat_uploads" });
+    return res.json({ success: true, url: result.secure_url });
   } catch (err) {
     return res.status(500).json({ success: false, msg: "Upload error", err: err.message });
   }
 });
 
-// ---------------------\
-// HTTP SERVER
-const server = app.listen(process.env.PORT || 3000, () => {
-  console.log("Server running");
-});
-// ---------------------\
-// Render သည် process.env.PORT ကို အလိုအလျောက် ပေးပါသည်။
-
-// ---------------------\
-// SOCKET.IO
-// ---------------------\
-const io = new Server(server, {
-  cors: { origin: "*" }
-});
-
-// Auth Middleware (ChatActivity မှ ပို့သော username (token) ကို စစ်ဆေးခြင်း)
+// ---------------------
+// SOCKET EVENTS
+// ---------------------
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    if (!token) return next(new Error("NO_TOKEN")); // Token မရှိရင် connection ပိတ်
+    if (!token) return next(new Error("NO_TOKEN"));
     next();
 });
 
 io.on("connection", socket => {
-  console.log("User connected:", socket.handshake.auth.token, "ID:", socket.id); // username ကို log ထုတ်ပါ
+  const username = socket.handshake.auth.token;
+  console.log("User connected:", username); 
+
+  broadcastUserCounts(); // User Connected -> Update Online Count
 
   socket.on("send_message", data => {
-    socket.broadcast.emit("receive_message", data); // Everyone gets the message
+    socket.broadcast.emit("receive_message", data);
   });
 
   socket.on("send_image", data => {
@@ -158,6 +163,14 @@ io.on("connection", socket => {
   });
 
   socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.handshake.auth.token);
+    console.log("User disconnected:", username);
+    broadcastUserCounts(); // User Disconnected -> Update Online Count
   });
+});
+
+// ---------------------
+// START SERVER
+// ---------------------
+httpServer.listen(process.env.PORT || 3000, () => {
+  console.log("Server running...");
 });
