@@ -1,36 +1,27 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv"; // dotenv ကို import အရင်လုပ်ပါ
+import dotenv from "dotenv";
 import mongoose from "mongoose";
 import multer from "multer";
 import cloudinary, { v2 as cloud } from "cloudinary";
 import { Server } from "socket.io";
 import { createHash } from "crypto";
-import { createServer } from "http";
+import { createServer } from "http"; // HTTP Server ကို သီးခြားခွဲထုတ်ရန်
 
-// 1. dotenv config ကို အပေါ်ဆုံးနားမှာ ကြေညာပါ
-dotenv.config();
+// Load environment variables
+dotenv.config(); 
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 
-// 2. MONGO_URL ကို process.env ကနေ ယူပါ (Hardcode မလုပ်တော့ပါ)
+// Use process.env for all secrets
 const MONGO_URL = process.env.MONGO_URL;
+const PORT = process.env.PORT || 3000;
 
 const app = express();
-const httpServer = createServer(app);
+const httpServer = createServer(app); // Socket.IO အတွက်
 
 app.use(cors());
 app.use(express.json());
-
-// ---------------------
-// CLOUDINARY SETUP
-// ---------------------
-// Cloudinary config တွေကိုလည်း env ကနေပဲ ယူပါမယ်
-cloud.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.CLOUD_KEY,
-  api_secret: process.env.CLOUD_SECRET
-});
 
 // ---------------------
 // MONGODB CONNECT
@@ -38,7 +29,6 @@ cloud.config({
 mongoose.connect(MONGO_URL)
   .then(() => console.log("MongoDB Connected"))
   .catch(err => console.log("DB Error:", err));
-
 // ---------------------
 // USER MODEL
 // ---------------------
@@ -51,13 +41,23 @@ const UserSchema = new mongoose.Schema({
 const User = mongoose.model("User", UserSchema);
 
 // ---------------------
+// CLOUDINARY SETUP
+// ---------------------
+// CLOUDINARY key များကို process.env မှ ယူပါ
+cloud.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUD_KEY,
+  api_secret: process.env.CLOUD_SECRET
+});
+
+// ---------------------
 // SOCKET.IO SETUP
 // ---------------------
 const io = new Server(httpServer, {
   cors: { origin: "*" }
 });
 
-// Broadcast Counts Helper
+// ** Helper Function: Broadcast Counts **
 async function broadcastUserCounts() {
     try {
         const registered = await User.countDocuments();
@@ -70,15 +70,13 @@ async function broadcastUserCounts() {
 }
 
 // ---------------------
-// MULTER
+// MULTER (MEMORY)
 // ---------------------
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ---------------------
-// ROUTES
-// ---------------------
-
 // SIGN UP
+// ---------------------
 app.post("/signup", async (req, res) => {
   try {
       const { username, final_hash } = req.body;
@@ -94,7 +92,8 @@ app.post("/signup", async (req, res) => {
       const newUser = new User({ username, finalHash: final_hash });
       await newUser.save();
 
-      broadcastUserCounts(); // Update counts
+      // ** Count update on new user registered **
+      broadcastUserCounts();
 
       return res.json({ success: true, msg: "User created" });
   } catch (err) {
@@ -103,7 +102,9 @@ app.post("/signup", async (req, res) => {
   }
 });
 
+// ---------------------
 // SIGN IN
+// ---------------------
 app.post("/signin", async (req, res) => {
     try {
         const { username, final_hash } = req.body;
@@ -125,23 +126,28 @@ app.post("/signin", async (req, res) => {
     }
 });
 
+// ---------------------
 // UPLOAD
+// ---------------------
 app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, msg: "No file" });
     }
     const base64 = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-    const result = await cloud.uploader.upload(base64, { folder: "chat_uploads" });
+    const result = await cloud.uploader.upload(base64, {
+      folder: "chat_uploads"
+    });
     return res.json({ success: true, url: result.secure_url });
   } catch (err) {
     return res.status(500).json({ success: false, msg: "Upload error", err: err.message });
   }
 });
 
-// ---------------------
-// SOCKET EVENTS
-// ---------------------
+
+// ---------------------\
+// SOCKET.IO EVENTS
+// ---------------------\
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
     if (!token) return next(new Error("NO_TOKEN"));
@@ -150,9 +156,10 @@ io.use((socket, next) => {
 
 io.on("connection", socket => {
   const username = socket.handshake.auth.token;
-  console.log("User connected:", username); 
+  console.log("User connected:", username, "ID:", socket.id);
 
-  broadcastUserCounts(); // User Connected -> Update Online Count
+  // ** New: Broadcast counts on connect **
+  broadcastUserCounts(); 
 
   socket.on("send_message", data => {
     socket.broadcast.emit("receive_message", data);
@@ -164,13 +171,14 @@ io.on("connection", socket => {
 
   socket.on("disconnect", () => {
     console.log("User disconnected:", username);
-    broadcastUserCounts(); // User Disconnected -> Update Online Count
+    // ** New: Broadcast counts on disconnect (Delay 1 second for stability) **
+    setTimeout(broadcastUserCounts, 1000); 
   });
 });
 
 // ---------------------
 // START SERVER
 // ---------------------
-httpServer.listen(process.env.PORT || 3000, () => {
-  console.log("Server running...");
+httpServer.listen(PORT, () => { 
+  console.log(`Server running on port ${PORT}`);
 });
